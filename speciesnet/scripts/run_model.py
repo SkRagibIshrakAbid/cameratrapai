@@ -34,6 +34,12 @@ from speciesnet.ensemble_prediction_combiner import PredictionType
 from speciesnet.utils import load_partial_predictions
 from speciesnet.utils import prepare_instances_dict
 
+#custom imports for ragib
+import os
+from PIL import Image, ImageDraw, ImageFont, ImageColor
+from matplotlib import font_manager
+import cv2
+
 _MODEL = flags.DEFINE_string(
     "model",
     DEFAULT_MODEL,
@@ -450,7 +456,94 @@ def main(argv: list[str]) -> None:
             "Predictions:\n"
             + json.dumps(predictions_dict, ensure_ascii=False, indent=4)
         )
+    
+    #______________________________________________________________________________________________________________________
+    #print("Testing directory")
+    #print(os.path.dirname(_PREDICTIONS_JSON.value[0]))
+    #print(os.path.dirname(_PREDICTIONS_JSON.value))
+    # Get the directory of the script/exe
+    #exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
 
+    # Define paths
+    json_path = _PREDICTIONS_JSON.value
+    output_folder = os.path.dirname(_PREDICTIONS_JSON.value)
+    
+    # Load JSON file
+    with open(json_path, "r") as file:
+        data = json.load(file)
+    
+    # Create output directory
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Define font properties
+    font_prop = font_manager.FontProperties(family="sans serif", weight="bold")
+    font = ImageFont.truetype(font_manager.findfont(font_prop), size=12)
+    border_size = 3
+    
+    # Process each prediction
+    for prediction in data["predictions"]:
+        img_path = prediction["filepath"]
+        detections = prediction["detections"]
+        prediction_text = prediction["prediction"]
+        pred_score = prediction["prediction_score"]
+        
+        # Determine label
+        if "ursus species" in prediction_text.lower():
+            prediction_label = "brown bear"
+        elif "bear family" in prediction_text.lower():
+            prediction_label = "brown bear"
+        elif "asiatic black bear" in prediction_text.lower():
+            prediction_label = "brown bear"
+        elif "cervidae" in prediction_text.lower():
+            prediction_label = "deer"
+        else:
+            prediction_label = prediction_text.split(";")[-1]  # Extract last part of prediction
+        
+        # Load image
+        img = Image.open(img_path).convert("RGBA")
+        overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        # Draw bounding boxes only for detections with conf > 80%
+        for detection in detections:
+            score = pred_score
+            #if score >= 0.8 and prediction_label != "blank" and detection["conf"] >= 0.8:
+            if prediction_label != "blank" and detection["conf"] >= 0.8:
+                bbox = detection["bbox"]
+                
+                x0 = bbox[0] * img.width
+                y0 = bbox[1] * img.height
+                x1 = (bbox[0] + bbox[2]) * img.width
+                y1 = (bbox[1] + bbox[3]) * img.height
+                
+                rgb = ImageColor.getrgb("red")  # Default color
+                alpha = int(score * 255)
+                color = (*rgb[:3], alpha)
+                
+                text = f"{prediction_label}: {score:.2f}"
+                text_rel_xy = font.getbbox(text, anchor="lt")
+                text_bg_xy = (
+                    x0,
+                    y0,
+                    x0 + text_rel_xy[2] + 2 * border_size,
+                    y0 + text_rel_xy[3] + 2 * border_size,
+                )
+                text_color = (255, 255, 255, alpha)
+                
+                draw.rectangle((x0, y0, x1, y1), outline=color, width=border_size)
+                draw.rectangle(text_bg_xy, fill=color, width=border_size)
+                draw.text(
+                    (x0 + border_size, y0 + border_size),
+                    text,
+                    fill=text_color,
+                    font=font,
+                    anchor="lt",
+                )
+        
+        # Save the modified image
+        output_path = os.path.join(output_folder, os.path.basename(img_path))
+        Image.alpha_composite(img, overlay).convert("RGB").save(output_path)
+        print(f"Saved: {output_path}")
 
 if __name__ == "__main__":
     app.run(main)
