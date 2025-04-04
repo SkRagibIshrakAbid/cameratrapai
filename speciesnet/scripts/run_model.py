@@ -544,6 +544,10 @@ def main(argv: list[str]) -> None:
         output_path = os.path.join(output_folder, os.path.basename(img_path))
         Image.alpha_composite(img, overlay).convert("RGB").save(output_path)
         print(f"Saved: {output_path}")
+        # Remove the JSON file from the output folder
+        if os.path.exists(json_path):
+            os.remove(json_path)
+            print(f"Removed: {json_path}")
 
 if __name__ == "__main__":
     app.run(main)
