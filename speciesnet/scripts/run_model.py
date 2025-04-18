@@ -466,88 +466,99 @@ def main(argv: list[str]) -> None:
 
     # Define paths
     json_path = _PREDICTIONS_JSON.value
-    output_folder = os.path.dirname(_PREDICTIONS_JSON.value)
-    
+    output_folder = os.path.dirname(json_path)
+    not_bear_folder = os.path.join(output_folder, "not_bear")
+
     # Load JSON file
     with open(json_path, "r") as file:
         data = json.load(file)
-    
-    # Create output directory
+
+    # Create output directories
     os.makedirs(output_folder, exist_ok=True)
-    
+    os.makedirs(not_bear_folder, exist_ok=True)
+
     # Define font properties
     font_prop = font_manager.FontProperties(family="sans serif", weight="bold")
     font = ImageFont.truetype(font_manager.findfont(font_prop), size=12)
     border_size = 3
-    
+
     # Process each prediction
     for prediction in data["predictions"]:
         img_path = prediction["filepath"]
         detections = prediction["detections"]
         prediction_text = prediction["prediction"]
         pred_score = prediction["prediction_score"]
-        
+
         # Determine label
         if "ursus species" in prediction_text.lower():
-            prediction_label = "brown bear"
+            prediction_label = "bear"
         elif "bear family" in prediction_text.lower():
-            prediction_label = "brown bear"
+            prediction_label = "bear"
         elif "asiatic black bear" in prediction_text.lower():
-            prediction_label = "brown bear"
+            prediction_label = "bear"
+        elif "brown bear" in prediction_text.lower():
+            prediction_label = "bear"
         elif "cervidae" in prediction_text.lower():
             prediction_label = "deer"
         else:
-            prediction_label = prediction_text.split(";")[-1]  # Extract last part of prediction
-        
+            prediction_label = prediction_text.split(";")[-1]
+
+        bear_detected = prediction_label == "bear"
+
         # Load image
         img = Image.open(img_path).convert("RGBA")
         overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(overlay)
-        
-        # Draw bounding boxes only for detections with conf > 80%
-        for detection in detections:
-            score = pred_score
-            #if score >= 0.8 and prediction_label != "blank" and detection["conf"] >= 0.8:
-            if prediction_label != "blank" and detection["conf"] >= 0.8:
-                bbox = detection["bbox"]
-                
-                x0 = bbox[0] * img.width
-                y0 = bbox[1] * img.height
-                x1 = (bbox[0] + bbox[2]) * img.width
-                y1 = (bbox[1] + bbox[3]) * img.height
-                
-                rgb = ImageColor.getrgb("red")  # Default color
-                alpha = int(score * 255)
-                color = (*rgb[:3], alpha)
-                
-                text = f"{prediction_label}: {score:.2f}"
-                text_rel_xy = font.getbbox(text, anchor="lt")
-                text_bg_xy = (
-                    x0,
-                    y0,
-                    x0 + text_rel_xy[2] + 2 * border_size,
-                    y0 + text_rel_xy[3] + 2 * border_size,
-                )
-                text_color = (255, 255, 255, alpha)
-                
-                draw.rectangle((x0, y0, x1, y1), outline=color, width=border_size)
-                draw.rectangle(text_bg_xy, fill=color, width=border_size)
-                draw.text(
-                    (x0 + border_size, y0 + border_size),
-                    text,
-                    fill=text_color,
-                    font=font,
-                    anchor="lt",
-                )
-        
+
+        # Filter detections
+        valid_detections = [d for d in detections if d["conf"] >= 0.8]
+
+        # If no valid detections, keep the highest one
+        if not valid_detections and detections:
+            best_detection = max(detections, key=lambda x: x["conf"])
+            valid_detections = [best_detection]
+
+        # Draw detections (all in blue)
+        for detection in valid_detections:
+            bbox = detection["bbox"]
+            x0 = bbox[0] * img.width
+            y0 = bbox[1] * img.height
+            x1 = (bbox[0] + bbox[2]) * img.width
+            y1 = (bbox[1] + bbox[3]) * img.height
+
+            rgb = ImageColor.getrgb("blue")
+            alpha = int(pred_score * 255)
+            color = (*rgb[:3], alpha)
+
+            text = f"{prediction_label}: {pred_score:.2f}"
+            text_rel_xy = font.getbbox(text, anchor="lt")
+            text_bg_xy = (
+                x0,
+                y0,
+                x0 + text_rel_xy[2] + 2 * border_size,
+                y0 + text_rel_xy[3] + 2 * border_size,
+            )
+            text_color = (255, 255, 255, alpha)
+
+            draw.rectangle((x0, y0, x1, y1), outline=color, width=border_size)
+            draw.rectangle(text_bg_xy, fill=color, width=border_size)
+            draw.text(
+                (x0 + border_size, y0 + border_size),
+                text,
+                fill=text_color,
+                font=font,
+                anchor="lt",
+            )
+
         # Save the modified image
-        output_path = os.path.join(output_folder, os.path.basename(img_path))
+        save_folder = output_folder if bear_detected else not_bear_folder
+        output_path = os.path.join(save_folder, os.path.basename(img_path))
         Image.alpha_composite(img, overlay).convert("RGB").save(output_path)
         print(f"Saved: {output_path}")
         # Remove the JSON file from the output folder
         if os.path.exists(json_path):
             os.remove(json_path)
             print(f"Removed: {json_path}")
-
+            
 if __name__ == "__main__":
     app.run(main)
